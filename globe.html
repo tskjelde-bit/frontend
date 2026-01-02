@@ -3,89 +3,42 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>Oslo Globe – Boroughs</title>
+        <title>Oslo Globe – Wanderlust-ish (landmask + borders glow)</title>
         <style>
-            :root {
-                color-scheme: dark;
-                font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
-                    BlinkMacSystemFont, "Segoe UI", sans-serif;
-            }
             html,
             body {
                 margin: 0;
                 height: 100%;
-                background: radial-gradient(
-                    circle at 30% 20%,
-                    #1a2332 0%,
-                    #0b0d12 55%,
-                    #07080c 100%
-                );
+                background: #060a14;
                 overflow: hidden;
             }
             canvas {
                 display: block;
             }
-            #label {
+            #hud {
                 position: fixed;
-                left: 0;
-                top: 0;
-                opacity: 0;
-                transform: translate(-50%, -50%);
-                transition:
-                    opacity 0.25s ease,
-                    transform 0.25s ease;
+                left: 12px;
+                bottom: 12px;
+                max-width: min(980px, calc(100vw - 24px));
+                font:
+                    12px/1.35 ui-monospace,
+                    SFMono-Regular,
+                    Menlo,
+                    Monaco,
+                    Consolas,
+                    "Liberation Mono",
+                    "Courier New",
+                    monospace;
+                color: #eaeaea;
+                background: rgba(0, 0, 0, 0.45);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                padding: 10px 12px;
+                border-radius: 10px;
+                white-space: pre-wrap;
                 pointer-events: none;
             }
-            #label.visible {
-                opacity: 1;
-                transform: translate(-50%, -58%);
-            }
-            #label .pill {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                padding: 8px 12px;
-                border-radius: 999px;
-                background: rgba(7, 10, 16, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                box-shadow:
-                    0 10px 30px rgba(3, 6, 10, 0.45),
-                    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-                color: #f3f5f7;
-                font-size: 13px;
-                letter-spacing: 0.02em;
-                backdrop-filter: blur(8px);
-            }
-            #label .pin {
-                width: 10px;
-                height: 10px;
-                border-radius: 999px;
-                background: radial-gradient(
-                    circle at 35% 35%,
-                    #ffffff,
-                    #9fe2ff 45%,
-                    #3fb3e6 75%
-                );
-                box-shadow: 0 0 8px rgba(92, 200, 255, 0.6);
-                position: relative;
-            }
-            #label .pin::after {
-                content: "";
-                position: absolute;
-                left: 50%;
-                top: 100%;
-                width: 2px;
-                height: 8px;
-                transform: translateX(-50%);
-                background: linear-gradient(
-                    to bottom,
-                    rgba(159, 226, 255, 0.9),
-                    rgba(63, 179, 230, 0)
-                );
-            }
-            #label .name {
-                white-space: nowrap;
-                font-weight: 500;
+            #hud.ok {
+                display: none;
             }
         </style>
 
@@ -100,12 +53,7 @@
     </head>
 
     <body>
-        <div id="label">
-            <div class="pill">
-                <span class="pin"></span>
-                <span class="name">Frogner</span>
-            </div>
-        </div>
+        <div id="hud">Init…</div>
 
         <script type="module">
             import * as THREE from "three";
@@ -114,273 +62,52 @@
             import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
             import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
-            const label = document.getElementById("label");
-            const labelName = label.querySelector(".name");
+            const hud = document.getElementById("hud");
+            const log = (msg) => (hud.textContent = String(msg));
+            const ok = () => hud.classList.add("ok");
 
             const CONFIG = {
                 radius: 1.0,
-                segments: 128,
+                segments: 192,
 
-                fillScale: 1.001,
-                lineScale: 1.002,
+                // Assets (må ligge ved siden av globe.html)
+                landMaskPng: "./oslo_landmask.png",
+                bordersPng: "./oslo_borders.png",
 
-                texW: 2048,
-                texH: 1024,
-                padding: 0.03,
-                svgUrl: "./oslo.svg",
+                // Orientering av Oslo på kula (juster etter behov)
+                overlayYawDeg: 0,
 
-                ocean: {
-                    top: "#172b3a",
-                    mid: "#13212f",
-                    deep: "#0b131d",
-                    shimmer: "rgba(133, 186, 214, 0.16)",
-                },
-                land: {
-                    base: "#c8cbb9",
-                    shade: "#b1b8a2",
-                    warmth: "#d8c9b2",
-                },
-
-                lineColor: "#101820",
-                lineWidthHint: 1.4,
-                lineOpacity: 0.3,
-                alphaTest: 0.08,
-
+                // Kontroll (samme som før)
                 autoRotate: true,
-                autoRotateSpeed: 0.35,
+                autoRotateSpeed: 0.45,
 
+                // Wanderlust-ish fargebase
+                oceanColorA: "#4AAED5", // lys hav
+                oceanColorB: "#2C86B8", // mørkere hav
+                oceanDeep: "#1A4F7A", // dyp skygge
+                landColorA: "#DDE4D6", // lys land
+                landColorB: "#BFD2B6", // mørkere land
+
+                // Borders (synlige + glow)
+                borderColor: "#EAF2FF", // synlig strek (ikke glød)
+                glowColor: "#FFFFFF", // emissive/glow farge
+                borderOpacity: 0.55, // synlig strek uten glow
+                glowOpacity: 1.0, // glow intensitet
+
+                // Bloom (kun glow-mesh)
                 bloom: {
                     enabled: true,
-                    strength: 0.32,
-                    radius: 0.22,
-                    threshold: 0.86,
-                },
-
-                atmosphere: {
-                    color: "#88c7ff",
-                    power: 2.6,
-                    intensity: 0.45,
-                    scale: 1.05,
-                },
-
-                hover: {
-                    threshold: 0.26,
-                    lift: 0.035,
-                    markerScale: 1.45,
+                    strength: 0.9,
+                    radius: 0.35,
+                    threshold: 0.85,
                 },
             };
 
-            const BOROUGHS = [
-                {
-                    name: "Frogner",
-                    uv: [0.56, 0.52],
-                    accent: "#f4d7b0",
-                },
-                {
-                    name: "St. Hanshaugen",
-                    uv: [0.58, 0.48],
-                    accent: "#d7e4c5",
-                },
-                {
-                    name: "Sagene",
-                    uv: [0.6, 0.44],
-                    accent: "#c7d7e4",
-                },
-                {
-                    name: "Gamlebyen",
-                    uv: [0.6, 0.56],
-                    accent: "#e7c3b3",
-                },
-                {
-                    name: "Grünerløkka",
-                    uv: [0.62, 0.5],
-                    accent: "#d0c0e4",
-                },
-            ];
+            const BLOOM_LAYER = 1;
 
-            function injectStyle(svgText, css) {
-                return svgText.replace(/<svg\b([^>]*)>/i, (m, attrs) => {
-                    const style = `<style>${css}</style>`;
-                    return `<svg ${attrs}>${style}`;
-                });
-            }
-
-            async function svgToCanvas({
-                url,
-                width,
-                height,
-                padding,
-                mode,
-                lineColor,
-                lineWidthHint,
-            }) {
-                const bust = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
-                const response = await fetch(bust, { cache: "no-store" });
-                if (!response.ok) {
-                    throw new Error(
-                        `SVG fetch feilet: ${response.status} ${response.statusText} (${url})`,
-                    );
-                }
-                let svgText = await response.text();
-
-                if (mode === "fillsOnly") {
-                    svgText = injectStyle(
-                        svgText,
-                        `
-            path, line, polyline, polygon, rect, circle, ellipse {
-              fill: #ffffff !important;
-              stroke: none !important;
-            }
-          `,
-                    );
-                } else if (mode === "linesOnly") {
-                    svgText = injectStyle(
-                        svgText,
-                        `
-            path, line, polyline, polygon, rect, circle, ellipse {
-              fill: none !important;
-              stroke: ${lineColor} !important;
-              stroke-width: ${lineWidthHint} !important;
-              stroke-linecap: round !important;
-              stroke-linejoin: round !important;
-            }
-          `,
-                    );
-                } else {
-                    throw new Error(`Ukjent mode: ${mode}`);
-                }
-
-                const blob = new Blob([svgText], {
-                    type: "image/svg+xml;charset=utf-8",
-                });
-                const blobUrl = URL.createObjectURL(blob);
-
-                const img = await new Promise((resolve, reject) => {
-                    const im = new Image();
-                    im.onload = () => resolve(im);
-                    im.onerror = () =>
-                        reject(new Error("Kunne ikke decode SVG til Image()"));
-                    im.src = blobUrl;
-                });
-                URL.revokeObjectURL(blobUrl);
-
-                const canvas = document.createElement("canvas");
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext("2d", { alpha: true });
-                ctx.clearRect(0, 0, width, height);
-
-                const safeW = width * (1 - padding * 2);
-                const safeH = height * (1 - padding * 2);
-                const scale = Math.min(safeW / img.width, safeH / img.height);
-
-                const drawW = img.width * scale;
-                const drawH = img.height * scale;
-                const x = (width - drawW) / 2;
-                const y = (height - drawH) / 2;
-
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = "high";
-                ctx.drawImage(img, x, y, drawW, drawH);
-
-                return { canvas, ctx };
-            }
-
-            function canvasToTexture(canvas) {
-                const tex = new THREE.CanvasTexture(canvas);
-                tex.wrapS = THREE.ClampToEdgeWrapping;
-                tex.wrapT = THREE.ClampToEdgeWrapping;
-                tex.flipY = false;
-                tex.colorSpace = THREE.SRGBColorSpace;
-                tex.premultiplyAlpha = true;
-                tex.anisotropy = 8;
-                tex.needsUpdate = true;
-                return tex;
-            }
-
-            function addSoftNoise(ctx, width, height, intensity = 0.08) {
-                const imageData = ctx.getImageData(0, 0, width, height);
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                    const noise = (Math.random() - 0.5) * 255 * intensity;
-                    data[i] = Math.min(255, Math.max(0, data[i] + noise));
-                    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-                    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
-                }
-                ctx.putImageData(imageData, 0, 0);
-            }
-
-            function buildAlbedoCanvas({ fillCanvas, width, height, ocean, land }) {
-                const base = document.createElement("canvas");
-                base.width = width;
-                base.height = height;
-                const ctx = base.getContext("2d");
-
-                const oceanGrad = ctx.createLinearGradient(0, 0, 0, height);
-                oceanGrad.addColorStop(0, ocean.top);
-                oceanGrad.addColorStop(0.5, ocean.mid);
-                oceanGrad.addColorStop(1, ocean.deep);
-                ctx.fillStyle = oceanGrad;
-                ctx.fillRect(0, 0, width, height);
-
-                const shimmer = ctx.createRadialGradient(
-                    width * 0.35,
-                    height * 0.4,
-                    width * 0.15,
-                    width * 0.5,
-                    height * 0.5,
-                    width * 0.7,
-                );
-                shimmer.addColorStop(0, ocean.shimmer);
-                shimmer.addColorStop(1, "rgba(10, 15, 22, 0)");
-                ctx.fillStyle = shimmer;
-                ctx.fillRect(0, 0, width, height);
-
-                const landCanvas = document.createElement("canvas");
-                landCanvas.width = width;
-                landCanvas.height = height;
-                const landCtx = landCanvas.getContext("2d");
-                const landGrad = landCtx.createLinearGradient(0, 0, 0, height);
-                landGrad.addColorStop(0.1, land.base);
-                landGrad.addColorStop(0.5, land.warmth);
-                landGrad.addColorStop(0.9, land.shade);
-                landCtx.fillStyle = landGrad;
-                landCtx.fillRect(0, 0, width, height);
-                landCtx.globalCompositeOperation = "destination-in";
-                landCtx.drawImage(fillCanvas, 0, 0);
-                landCtx.globalCompositeOperation = "source-over";
-
-                ctx.drawImage(landCanvas, 0, 0);
-                addSoftNoise(ctx, width, height, 0.06);
-
-                return base;
-            }
-
-            function uvToVector3(u, v, radius = 1) {
-                const theta = (u - 0.5) * Math.PI * 2;
-                const phi = (0.5 - v) * Math.PI;
-                const x = radius * Math.cos(phi) * Math.sin(theta);
-                const y = radius * Math.sin(phi);
-                const z = radius * Math.cos(phi) * Math.cos(theta);
-                return new THREE.Vector3(x, y, z);
-            }
-
-            function createGlowTexture() {
-                const canvas = document.createElement("canvas");
-                canvas.width = 128;
-                canvas.height = 128;
-                const ctx = canvas.getContext("2d");
-                const gradient = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
-                gradient.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-                gradient.addColorStop(0.4, "rgba(140, 210, 255, 0.45)");
-                gradient.addColorStop(1, "rgba(140, 210, 255, 0)");
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, 128, 128);
-                return canvasToTexture(canvas);
-            }
-
+            // ---------- Three basics ----------
             const scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(new THREE.Color("#060a14"), 6.0, 14.0);
 
             const camera = new THREE.PerspectiveCamera(
                 35,
@@ -388,7 +115,7 @@
                 0.01,
                 100,
             );
-            camera.position.set(0, 0, 3.1);
+            camera.position.set(0, 0, 3.2);
 
             const renderer = new THREE.WebGLRenderer({
                 antialias: true,
@@ -399,29 +126,23 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.outputColorSpace = THREE.SRGBColorSpace;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.02;
-            renderer.setClearColor("#07080c", 1);
+            renderer.toneMappingExposure = 1.0;
             document.body.appendChild(renderer.domElement);
 
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.06;
             controls.enablePan = false;
-            controls.minDistance = 2.1;
+            controls.minDistance = 2.2;
             controls.maxDistance = 6.0;
             controls.autoRotate = CONFIG.autoRotate;
             controls.autoRotateSpeed = CONFIG.autoRotateSpeed;
 
+            // Lys for subtil volumfølelse i shader (vi bruker også faux-light i shader)
             scene.add(new THREE.AmbientLight(0xffffff, 0.25));
-            const key = new THREE.DirectionalLight(0xffffff, 1.15);
-            key.position.set(2.6, 1.4, 2.2);
+            const key = new THREE.DirectionalLight(0xffffff, 0.85);
+            key.position.set(2.2, 1.4, 1.8);
             scene.add(key);
-            const fill = new THREE.DirectionalLight(0xffffff, 0.35);
-            fill.position.set(-2.1, -0.4, 1.4);
-            scene.add(fill);
-
-            const globeGroup = new THREE.Group();
-            scene.add(globeGroup);
 
             const geom = new THREE.SphereGeometry(
                 CONFIG.radius,
@@ -429,126 +150,155 @@
                 CONFIG.segments,
             );
 
-            const baseMat = new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color("#ffffff"),
-                roughness: 0.72,
-                metalness: 0.04,
-                clearcoat: 0.4,
-                clearcoatRoughness: 0.45,
-            });
-            const baseMesh = new THREE.Mesh(geom, baseMat);
-            globeGroup.add(baseMesh);
-
-            const fillMat = new THREE.MeshBasicMaterial({
-                transparent: true,
-                depthWrite: false,
-                opacity: 0.12,
-            });
-            fillMat.toneMapped = false;
-            const fillMesh = new THREE.Mesh(geom, fillMat);
-            fillMesh.scale.setScalar(CONFIG.fillScale);
-            globeGroup.add(fillMesh);
-
-            const lineMat = new THREE.MeshBasicMaterial({
-                transparent: true,
-                alphaTest: CONFIG.alphaTest,
-                depthWrite: false,
-                color: new THREE.Color("#ffffff"),
-                opacity: CONFIG.lineOpacity,
-            });
-            lineMat.toneMapped = false;
-            const lineMesh = new THREE.Mesh(geom, lineMat);
-            lineMesh.scale.setScalar(CONFIG.lineScale);
-            globeGroup.add(lineMesh);
-
-            const atmosphereMat = new THREE.ShaderMaterial({
-                uniforms: {
-                    glowColor: {
-                        value: new THREE.Color(CONFIG.atmosphere.color),
-                    },
-                    power: { value: CONFIG.atmosphere.power },
-                    intensity: { value: CONFIG.atmosphere.intensity },
+            // ---------- Shader: ocean + land (integrert, ikke “klistret kart”) ----------
+            const uniforms = {
+                uLandMask: { value: null },
+                uTime: { value: 0.0 },
+                uOceanA: { value: new THREE.Color(CONFIG.oceanColorA) },
+                uOceanB: { value: new THREE.Color(CONFIG.oceanColorB) },
+                uOceanDeep: { value: new THREE.Color(CONFIG.oceanDeep) },
+                uLandA: { value: new THREE.Color(CONFIG.landColorA) },
+                uLandB: { value: new THREE.Color(CONFIG.landColorB) },
+                uLightDir: {
+                    value: new THREE.Vector3(0.65, 0.35, 0.68).normalize(),
                 },
-                vertexShader: `
-                    varying vec3 vNormal;
-                    varying vec3 vWorldPosition;
-                    void main() {
-                        vNormal = normalize(normalMatrix * normal);
-                        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                        vWorldPosition = worldPosition.xyz;
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `,
-                fragmentShader: `
-                    uniform vec3 glowColor;
-                    uniform float power;
-                    uniform float intensity;
-                    varying vec3 vNormal;
-                    varying vec3 vWorldPosition;
-                    void main() {
-                        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-                        float fresnel = pow(1.0 - max(dot(vNormal, viewDir), 0.0), power);
-                        gl_FragColor = vec4(glowColor, fresnel * intensity);
-                    }
-                `,
-                blending: THREE.AdditiveBlending,
-                transparent: true,
-                depthWrite: false,
-                side: THREE.BackSide,
-            });
-            const atmosphereMesh = new THREE.Mesh(geom, atmosphereMat);
-            atmosphereMesh.scale.setScalar(CONFIG.atmosphere.scale);
-            globeGroup.add(atmosphereMesh);
-
-            const markerGroup = new THREE.Group();
-            globeGroup.add(markerGroup);
-
-            const glowTexture = createGlowTexture();
-            const hoverState = {
-                active: null,
-                target: null,
-                smoothPos: new THREE.Vector3(),
-                screen: { x: 0, y: 0 },
-                labelVisible: false,
             };
 
-            const boroughMarkers = BOROUGHS.map((borough) => {
-                const anchor = uvToVector3(borough.uv[0], borough.uv[1], CONFIG.radius);
-                const dotGeom = new THREE.SphereGeometry(0.012, 16, 16);
-                const dotMat = new THREE.MeshBasicMaterial({
-                    color: new THREE.Color(borough.accent),
-                    transparent: true,
-                    opacity: 0.65,
-                });
-                dotMat.toneMapped = false;
-                const dot = new THREE.Mesh(dotGeom, dotMat);
-                dot.position.copy(anchor.clone().multiplyScalar(1.01));
+            const vert = `
+        varying vec2 vUv;
+        varying vec3 vN;
+        varying vec3 vWPos;
+        void main() {
+          vUv = uv;
+          vN = normalize(normalMatrix * normal);
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `;
 
-                const glowMat = new THREE.SpriteMaterial({
-                    map: glowTexture,
-                    color: new THREE.Color(borough.accent),
-                    transparent: true,
-                    opacity: 0.0,
-                    depthWrite: false,
-                    blending: THREE.AdditiveBlending,
-                });
-                const glow = new THREE.Sprite(glowMat);
-                glow.scale.setScalar(0.14);
-                glow.position.copy(anchor.clone().multiplyScalar(1.04));
+            // Merk: landMask er 2D equirect. Dette er “Oslo som kontinent” + hav.
+            const frag = `
+        precision highp float;
 
-                markerGroup.add(dot, glow);
+        uniform sampler2D uLandMask;
+        uniform float uTime;
 
-                return {
-                    ...borough,
-                    anchor,
-                    dot,
-                    glow,
-                    scale: 1,
-                };
+        uniform vec3 uOceanA;
+        uniform vec3 uOceanB;
+        uniform vec3 uOceanDeep;
+        uniform vec3 uLandA;
+        uniform vec3 uLandB;
+        uniform vec3 uLightDir;
+
+        varying vec2 vUv;
+        varying vec3 vN;
+        varying vec3 vWPos;
+
+        float hash21(vec2 p) {
+          p = fract(p * vec2(123.34, 345.45));
+          p += dot(p, p + 34.345);
+          return fract(p.x * p.y);
+        }
+
+        void main() {
+          vec3 N = normalize(vN);
+
+          // View dir (approx)
+          vec3 V = normalize(-vWPos);
+
+          // Land mask
+          float land = texture2D(uLandMask, vUv).r;
+          // Hard mask -> myk kant
+          float landEdge = smoothstep(0.35, 0.65, land);
+
+          // Faux lighting
+          float ndl = clamp(dot(N, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
+          float shade = pow(ndl, 1.35);
+
+          // Rim/fresnel (Wanderlust følelse)
+          float rim = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.8);
+
+          // Subtil “atmosphere” og vignette
+          float v = smoothstep(0.0, 1.0, shade);
+          float vignette = 0.85 + 0.15 * pow(1.0 - ndl, 1.5);
+
+          // Subtil noise for å unngå “flat plast”
+          float n = hash21(vUv * vec2(900.0, 450.0) + uTime * 0.02);
+          n = (n - 0.5) * 0.035;
+
+          // Ocean gradient
+          vec3 ocean = mix(uOceanDeep, mix(uOceanB, uOceanA, v), 0.78);
+          ocean += n;
+          ocean *= vignette;
+
+          // Land shading
+          vec3 landCol = mix(uLandB, uLandA, v);
+          landCol += n * 0.75;
+          landCol *= (0.92 + 0.08 * shade);
+
+          // Blend land over ocean
+          vec3 col = mix(ocean, landCol, landEdge);
+
+          // Atmosfærisk rim tint
+          col += vec3(0.20, 0.35, 0.55) * rim * 0.18;
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `;
+
+            const mainMat = new THREE.ShaderMaterial({
+                uniforms,
+                vertexShader: vert,
+                fragmentShader: frag,
             });
 
+            const mainMesh = new THREE.Mesh(geom, mainMat);
+            mainMesh.rotation.y = THREE.MathUtils.degToRad(
+                CONFIG.overlayYawDeg,
+            );
+            mainMesh.layers.set(0);
+            scene.add(mainMesh);
+
+            // ---------- Borders (synlig strek uten bloom) ----------
+            const bordersMat = new THREE.MeshBasicMaterial({
+                transparent: true,
+                depthWrite: false,
+                color: new THREE.Color(CONFIG.borderColor),
+                opacity: CONFIG.borderOpacity,
+            });
+            bordersMat.toneMapped = false;
+
+            const bordersMesh = new THREE.Mesh(geom, bordersMat);
+            bordersMesh.scale.setScalar(1.0015);
+            bordersMesh.rotation.y = THREE.MathUtils.degToRad(
+                CONFIG.overlayYawDeg,
+            );
+            bordersMesh.layers.set(0);
+            scene.add(bordersMesh);
+
+            // ---------- Glow mesh (kun bloom-layer) ----------
+            const glowMat = new THREE.MeshBasicMaterial({
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                color: new THREE.Color(CONFIG.glowColor),
+                opacity: CONFIG.glowOpacity,
+            });
+            glowMat.toneMapped = false;
+
+            const glowMesh = new THREE.Mesh(geom, glowMat);
+            glowMesh.scale.setScalar(1.003);
+            glowMesh.rotation.y = THREE.MathUtils.degToRad(
+                CONFIG.overlayYawDeg,
+            );
+            glowMesh.layers.set(BLOOM_LAYER);
+            scene.add(glowMesh);
+
+            // ---------- Composer: bloom kun for glow-layer ----------
             const composer = new EffectComposer(renderer);
             composer.addPass(new RenderPass(scene, camera));
+
             let bloomPass = null;
             if (CONFIG.bloom.enabled) {
                 bloomPass = new UnrealBloomPass(
@@ -560,99 +310,73 @@
                 composer.addPass(bloomPass);
             }
 
-            const raycaster = new THREE.Raycaster();
-            const pointer = new THREE.Vector2(0, 0);
-            let hasPointer = false;
+            // ---------- Texture loading ----------
+            const loader = new THREE.TextureLoader();
 
-            function setLabel(borough) {
-                if (!borough) {
-                    label.classList.remove("visible");
-                    hoverState.labelVisible = false;
-                    return;
-                }
-                labelName.textContent = borough.name;
-                label.classList.add("visible");
-                hoverState.labelVisible = true;
+            function loadTex(url) {
+                return new Promise((resolve, reject) => {
+                    const bust = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+                    loader.load(
+                        bust,
+                        (t) => {
+                            t.colorSpace = THREE.SRGBColorSpace;
+                            t.flipY = false;
+                            t.wrapS = THREE.ClampToEdgeWrapping;
+                            t.wrapT = THREE.ClampToEdgeWrapping;
+                            t.anisotropy = 8;
+                            resolve(t);
+                        },
+                        undefined,
+                        () => reject(new Error(`Kunne ikke laste: ${url}`)),
+                    );
+                });
             }
 
-            function updateHover(point) {
-                if (!point) {
-                    hoverState.target = null;
-                    setLabel(null);
-                    return;
+            (async () => {
+                try {
+                    log("Laster masker… (oslo_landmask.png, oslo_borders.png)");
+
+                    const [landMask, bordersMask] = await Promise.all([
+                        loadTex(CONFIG.landMaskPng),
+                        loadTex(CONFIG.bordersPng),
+                    ]);
+
+                    // Land mask i shader
+                    uniforms.uLandMask.value = landMask;
+
+                    // Borders-mesh bruker bordersMask som alpha via map
+                    bordersMat.map = bordersMask;
+                    bordersMat.needsUpdate = true;
+
+                    // Glow-mesh bruker samme bordersMask
+                    glowMat.map = bordersMask;
+                    glowMat.needsUpdate = true;
+
+                    ok();
+                } catch (e) {
+                    log(
+                        `Mask-load feilet:\n${e.message}\n\nSjekk:\n- at oslo_landmask.png og oslo_borders.png finnes i samme mappe\n- at du kjører via lokal server`,
+                    );
+                    console.error(e);
                 }
-                const normalized = point.clone().normalize();
-                let closest = null;
-                let closestAngle = Infinity;
+            })();
 
-                for (const borough of boroughMarkers) {
-                    const angle = normalized.angleTo(borough.anchor.clone().normalize());
-                    if (angle < closestAngle) {
-                        closestAngle = angle;
-                        closest = borough;
-                    }
-                }
-
-                if (closest && closestAngle < CONFIG.hover.threshold) {
-                    hoverState.target = closest;
-                    setLabel(closest);
-                } else {
-                    hoverState.target = null;
-                    setLabel(null);
-                }
-            }
-
-            function updatePointer(event) {
-                const rect = renderer.domElement.getBoundingClientRect();
-                pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-                hasPointer = true;
-            }
-
-            function clearPointer() {
-                hasPointer = false;
-                updateHover(null);
-            }
-
-            renderer.domElement.addEventListener("pointermove", updatePointer);
-            renderer.domElement.addEventListener("pointerleave", clearPointer);
+            // ---------- Render loop ----------
+            const clock = new THREE.Clock();
 
             function animate() {
                 requestAnimationFrame(animate);
+
+                uniforms.uTime.value += clock.getDelta();
                 controls.update();
 
-                if (hasPointer) {
-                    raycaster.setFromCamera(pointer, camera);
-                    const hit = raycaster.intersectObject(baseMesh);
-                    if (hit.length) {
-                        updateHover(hit[0].point);
-                    } else {
-                        updateHover(null);
-                    }
-                }
-
-                const target = hoverState.target;
-                for (const borough of boroughMarkers) {
-                    const isActive = target && target.name === borough.name;
-                    const targetScale = isActive ? CONFIG.hover.markerScale : 1;
-                    borough.scale += (targetScale - borough.scale) * 0.12;
-                    borough.dot.scale.setScalar(borough.scale);
-                    borough.glow.material.opacity +=
-                        ((isActive ? 0.6 : 0.0) - borough.glow.material.opacity) *
-                        0.12;
-                    borough.glow.scale.setScalar(0.14 * borough.scale);
-                }
-
-                if (hoverState.labelVisible && target) {
-                    hoverState.smoothPos.lerp(target.anchor, 0.12);
-                    const screenPos = hoverState.smoothPos.clone().project(camera);
-                    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-                    const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
-                    label.style.left = `${x}px`;
-                    label.style.top = `${y}px`;
-                }
-
+                // 1) Bloom (kun glow layer)
+                camera.layers.set(BLOOM_LAYER);
                 composer.render();
+
+                // 2) Normal (main + borders uten bloom)
+                camera.layers.set(0);
+                renderer.render(scene, camera);
             }
             animate();
 
@@ -661,51 +385,9 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 composer.setSize(window.innerWidth, window.innerHeight);
-                if (bloomPass) {
+                if (bloomPass)
                     bloomPass.setSize(window.innerWidth, window.innerHeight);
-                }
             });
-
-            (async () => {
-                try {
-                    const fillCanvasRes = await svgToCanvas({
-                        url: CONFIG.svgUrl,
-                        width: CONFIG.texW,
-                        height: CONFIG.texH,
-                        padding: CONFIG.padding,
-                        mode: "fillsOnly",
-                    });
-
-                    const lineCanvasRes = await svgToCanvas({
-                        url: CONFIG.svgUrl,
-                        width: CONFIG.texW,
-                        height: CONFIG.texH,
-                        padding: CONFIG.padding,
-                        mode: "linesOnly",
-                        lineColor: CONFIG.lineColor,
-                        lineWidthHint: CONFIG.lineWidthHint,
-                    });
-
-                    const albedoCanvas = buildAlbedoCanvas({
-                        fillCanvas: fillCanvasRes.canvas,
-                        width: CONFIG.texW,
-                        height: CONFIG.texH,
-                        ocean: CONFIG.ocean,
-                        land: CONFIG.land,
-                    });
-
-                    baseMat.map = canvasToTexture(albedoCanvas);
-                    baseMat.needsUpdate = true;
-
-                    fillMat.map = canvasToTexture(fillCanvasRes.canvas);
-                    fillMat.needsUpdate = true;
-
-                    lineMat.map = canvasToTexture(lineCanvasRes.canvas);
-                    lineMat.needsUpdate = true;
-                } catch (error) {
-                    console.error(error);
-                }
-            })();
         </script>
     </body>
 </html>
