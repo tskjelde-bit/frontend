@@ -9,7 +9,7 @@
             body {
                 margin: 0;
                 height: 100%;
-                background: #000;
+                background: radial-gradient(circle at 30% 20%, #1b2236, #05060a 70%);
                 overflow: hidden;
             }
             canvas {
@@ -99,9 +99,21 @@
                 padding: 0.03,
                 svgUrl: "./oslo.svg",
 
+                // farger
+                ocean: {
+                    top: "#18b6e8",
+                    mid: "#0ea2d7",
+                    deep: "#0a6c9b",
+                },
+                land: {
+                    base: "#c8d4b4",
+                    shade: "#b1c3a0",
+                },
+
                 // linjer
-                lineColor: "#ffffff",
-                lineWidthHint: 1.0,
+                lineColor: "#0b1520",
+                lineWidthHint: 1.6,
+                lineOpacity: 0.28,
                 alphaTest: 0.06,
 
                 // rotasjon
@@ -115,6 +127,13 @@
                     strength: 0.35,
                     radius: 0.25,
                     threshold: 0.85,
+                },
+
+                atmosphere: {
+                    color: "#7dd6ff",
+                    power: 2.4,
+                    intensity: 0.55,
+                    scale: 1.04,
                 },
             };
 
@@ -148,6 +167,7 @@
                         svgText,
                         `
             path, line, polyline, polygon, rect, circle, ellipse {
+              fill: #ffffff !important;
               stroke: none !important;
             }
           `,
@@ -219,6 +239,55 @@
                 return tex;
             }
 
+            function buildAlbedoCanvas({
+                fillCanvas,
+                width,
+                height,
+                ocean,
+                land,
+            }) {
+                const base = document.createElement("canvas");
+                base.width = width;
+                base.height = height;
+                const ctx = base.getContext("2d");
+
+                const oceanGrad = ctx.createLinearGradient(0, 0, 0, height);
+                oceanGrad.addColorStop(0, ocean.top);
+                oceanGrad.addColorStop(0.5, ocean.mid);
+                oceanGrad.addColorStop(1, ocean.deep);
+                ctx.fillStyle = oceanGrad;
+                ctx.fillRect(0, 0, width, height);
+
+                const vignette = ctx.createRadialGradient(
+                    width * 0.5,
+                    height * 0.55,
+                    width * 0.12,
+                    width * 0.5,
+                    height * 0.55,
+                    width * 0.72,
+                );
+                vignette.addColorStop(0, "rgba(255,255,255,0)");
+                vignette.addColorStop(1, "rgba(0,0,0,0.18)");
+                ctx.fillStyle = vignette;
+                ctx.fillRect(0, 0, width, height);
+
+                const landCanvas = document.createElement("canvas");
+                landCanvas.width = width;
+                landCanvas.height = height;
+                const landCtx = landCanvas.getContext("2d");
+                const landGrad = landCtx.createLinearGradient(0, 0, 0, height);
+                landGrad.addColorStop(0.1, land.base);
+                landGrad.addColorStop(0.9, land.shade);
+                landCtx.fillStyle = landGrad;
+                landCtx.fillRect(0, 0, width, height);
+                landCtx.globalCompositeOperation = "destination-in";
+                landCtx.drawImage(fillCanvas, 0, 0);
+                landCtx.globalCompositeOperation = "source-over";
+
+                ctx.drawImage(landCanvas, 0, 0);
+                return base;
+            }
+
             function estimateInkCoverage(ctx, w, h) {
                 // Rask indikator: hvor mange piksler har alpha > 0?
                 // Hvis fills finnes, blir dette typisk mye høyere enn bare linjer.
@@ -251,7 +320,8 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.outputColorSpace = THREE.SRGBColorSpace;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.0;
+            renderer.toneMappingExposure = 1.08;
+            renderer.setClearColor("#05060a", 1);
             document.body.appendChild(renderer.domElement);
 
             const controls = new OrbitControls(camera, renderer.domElement);
@@ -264,12 +334,12 @@
             controls.autoRotateSpeed = CONFIG.autoRotateSpeed;
 
             // Lys (base)
-            scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.32));
             const key = new THREE.DirectionalLight(0xffffff, 1.15);
-            key.position.set(2.5, 1.5, 2.0);
+            key.position.set(2.8, 1.6, 2.4);
             scene.add(key);
-            const fill = new THREE.DirectionalLight(0xffffff, 0.45);
-            fill.position.set(-2.2, -0.8, 1.2);
+            const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+            fill.position.set(-2.4, -0.6, 1.4);
             scene.add(fill);
 
             // Globe group
@@ -283,17 +353,21 @@
             );
 
             // Base: behold dine Wanderlust-verdier (lim inn hvis du har eksakt match)
-            const baseMat = new THREE.MeshStandardMaterial({
-                color: new THREE.Color("#3f7e83"),
-                roughness: 0.62,
-                metalness: 0.08,
+            const baseMat = new THREE.MeshPhysicalMaterial({
+                color: new THREE.Color("#ffffff"),
+                roughness: 0.68,
+                metalness: 0.05,
+                clearcoat: 0.35,
+                clearcoatRoughness: 0.4,
             });
-            globeGroup.add(new THREE.Mesh(geom, baseMat));
+            const baseMesh = new THREE.Mesh(geom, baseMat);
+            globeGroup.add(baseMesh);
 
             // Fill overlay: unlit, ikke tonemapped
             const fillMat = new THREE.MeshBasicMaterial({
                 transparent: true,
                 depthWrite: false,
+                opacity: 0.12,
             });
             fillMat.toneMapped = false;
             const fillMesh = new THREE.Mesh(geom, fillMat);
@@ -309,6 +383,7 @@
                 alphaTest: CONFIG.alphaTest,
                 depthWrite: false,
                 color: new THREE.Color("#ffffff"),
+                opacity: CONFIG.lineOpacity,
             });
             lineMat.toneMapped = false;
             const lineMesh = new THREE.Mesh(geom, lineMat);
@@ -317,6 +392,45 @@
                 CONFIG.overlayYawDeg,
             );
             globeGroup.add(lineMesh);
+
+            const atmosphereMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    glowColor: {
+                        value: new THREE.Color(CONFIG.atmosphere.color),
+                    },
+                    power: { value: CONFIG.atmosphere.power },
+                    intensity: { value: CONFIG.atmosphere.intensity },
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                        vWorldPosition = worldPosition.xyz;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 glowColor;
+                    uniform float power;
+                    uniform float intensity;
+                    varying vec3 vNormal;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+                        float fresnel = pow(1.0 - max(dot(vNormal, viewDir), 0.0), power);
+                        gl_FragColor = vec4(glowColor, fresnel * intensity);
+                    }
+                `,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                depthWrite: false,
+                side: THREE.BackSide,
+            });
+            const atmosphereMesh = new THREE.Mesh(geom, atmosphereMat);
+            atmosphereMesh.scale.setScalar(CONFIG.atmosphere.scale);
+            globeGroup.add(atmosphereMesh);
 
             // Postprocessing
             const composer = new EffectComposer(renderer);
@@ -352,7 +466,7 @@
             (async () => {
                 try {
                     log(
-                        `Laster SVG fra ${CONFIG.svgUrl} …\n(v5: fill=stroke:none, lines=fill:none)`,
+                        `Laster SVG fra ${CONFIG.svgUrl} …\n(v5: albedo + konturer fra SVG)`,
                     );
 
                     const fillCanvasRes = await svgToCanvas({
@@ -373,6 +487,14 @@
                         lineWidthHint: CONFIG.lineWidthHint,
                     });
 
+                    const albedoCanvas = buildAlbedoCanvas({
+                        fillCanvas: fillCanvasRes.canvas,
+                        width: CONFIG.texW,
+                        height: CONFIG.texH,
+                        ocean: CONFIG.ocean,
+                        land: CONFIG.land,
+                    });
+
                     // Diagnose: finnes det faktisk fylte flater?
                     const fillInk = estimateInkCoverage(
                         fillCanvasRes.ctx,
@@ -385,6 +507,9 @@
                         CONFIG.texH,
                     );
 
+                    baseMat.map = canvasToTexture(albedoCanvas);
+                    baseMat.needsUpdate = true;
+
                     fillMat.map = canvasToTexture(fillCanvasRes.canvas);
                     fillMat.needsUpdate = true;
 
@@ -395,7 +520,7 @@
                         `OK: overlay lastet.\n` +
                             `Diagnose:\n` +
                             `- fill pixels (sampled): ${fillInk}\n` +
-                            `- line pixels (sampled): ${lineInk}\n\n` +
+                        `- line pixels (sampled): ${lineInk}\n\n` +
                             `Hvis fill pixels ~ 0: SVG-en har ingen fylte bydeler. Da må du levere en fill-SVG.`,
                     );
                 } catch (e) {
