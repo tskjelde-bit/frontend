@@ -3,59 +3,89 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>Oslo Globe – Boroughs (v5)</title>
+        <title>Oslo Globe – Boroughs</title>
         <style>
+            :root {
+                color-scheme: dark;
+                font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+                    BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
             html,
             body {
                 margin: 0;
                 height: 100%;
-                background: radial-gradient(circle at 30% 20%, #1b2236, #05060a 70%);
+                background: radial-gradient(
+                    circle at 30% 20%,
+                    #1a2332 0%,
+                    #0b0d12 55%,
+                    #07080c 100%
+                );
                 overflow: hidden;
             }
             canvas {
                 display: block;
             }
-            #badge {
+            #label {
                 position: fixed;
-                left: 12px;
-                top: 12px;
-                font:
-                    12px/1 ui-monospace,
-                    SFMono-Regular,
-                    Menlo,
-                    Monaco,
-                    Consolas,
-                    "Liberation Mono",
-                    "Courier New",
-                    monospace;
-                color: #eaeaea;
-                background: rgba(0, 0, 0, 0.55);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                padding: 6px 8px;
-                border-radius: 10px;
+                left: 0;
+                top: 0;
+                opacity: 0;
+                transform: translate(-50%, -50%);
+                transition:
+                    opacity 0.25s ease,
+                    transform 0.25s ease;
                 pointer-events: none;
             }
-            #hud {
-                position: fixed;
-                left: 12px;
-                bottom: 12px;
-                max-width: min(980px, calc(100vw - 24px));
-                font:
-                    12px/1.35 ui-monospace,
-                    SFMono-Regular,
-                    Menlo,
-                    Monaco,
-                    Consolas,
-                    "Liberation Mono",
-                    "Courier New",
-                    monospace;
-                color: #eaeaea;
-                background: rgba(0, 0, 0, 0.55);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                padding: 10px 12px;
-                border-radius: 10px;
-                white-space: pre-wrap;
-                pointer-events: none;
+            #label.visible {
+                opacity: 1;
+                transform: translate(-50%, -58%);
+            }
+            #label .pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 12px;
+                border-radius: 999px;
+                background: rgba(7, 10, 16, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                box-shadow:
+                    0 10px 30px rgba(3, 6, 10, 0.45),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+                color: #f3f5f7;
+                font-size: 13px;
+                letter-spacing: 0.02em;
+                backdrop-filter: blur(8px);
+            }
+            #label .pin {
+                width: 10px;
+                height: 10px;
+                border-radius: 999px;
+                background: radial-gradient(
+                    circle at 35% 35%,
+                    #ffffff,
+                    #9fe2ff 45%,
+                    #3fb3e6 75%
+                );
+                box-shadow: 0 0 8px rgba(92, 200, 255, 0.6);
+                position: relative;
+            }
+            #label .pin::after {
+                content: "";
+                position: absolute;
+                left: 50%;
+                top: 100%;
+                width: 2px;
+                height: 8px;
+                transform: translateX(-50%);
+                background: linear-gradient(
+                    to bottom,
+                    rgba(159, 226, 255, 0.9),
+                    rgba(63, 179, 230, 0)
+                );
+            }
+            #label .name {
+                white-space: nowrap;
+                font-weight: 500;
             }
         </style>
 
@@ -70,8 +100,12 @@
     </head>
 
     <body>
-        <div id="badge">v5</div>
-        <div id="hud">Init…</div>
+        <div id="label">
+            <div class="pill">
+                <span class="pin"></span>
+                <span class="name">Frogner</span>
+            </div>
+        </div>
 
         <script type="module">
             import * as THREE from "three";
@@ -80,62 +114,89 @@
             import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
             import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
-            const hud = document.getElementById("hud");
-            const log = (msg) => {
-                hud.textContent = String(msg);
-            };
+            const label = document.getElementById("label");
+            const labelName = label.querySelector(".name");
 
             const CONFIG = {
                 radius: 1.0,
                 segments: 128,
 
-                // laghøyder
                 fillScale: 1.001,
                 lineScale: 1.002,
 
-                // texture
                 texW: 2048,
                 texH: 1024,
                 padding: 0.03,
                 svgUrl: "./oslo.svg",
 
-                // farger
                 ocean: {
-                    top: "#18b6e8",
-                    mid: "#0ea2d7",
-                    deep: "#0a6c9b",
+                    top: "#172b3a",
+                    mid: "#13212f",
+                    deep: "#0b131d",
+                    shimmer: "rgba(133, 186, 214, 0.16)",
                 },
                 land: {
-                    base: "#c8d4b4",
-                    shade: "#b1c3a0",
+                    base: "#c8cbb9",
+                    shade: "#b1b8a2",
+                    warmth: "#d8c9b2",
                 },
 
-                // linjer
-                lineColor: "#0b1520",
-                lineWidthHint: 1.6,
-                lineOpacity: 0.28,
-                alphaTest: 0.06,
+                lineColor: "#101820",
+                lineWidthHint: 1.4,
+                lineOpacity: 0.3,
+                alphaTest: 0.08,
 
-                // rotasjon
                 autoRotate: true,
-                autoRotateSpeed: 0.45,
-                overlayYawDeg: 0,
+                autoRotateSpeed: 0.35,
 
-                // Wanderlust-finish
                 bloom: {
                     enabled: true,
-                    strength: 0.35,
-                    radius: 0.25,
-                    threshold: 0.85,
+                    strength: 0.32,
+                    radius: 0.22,
+                    threshold: 0.86,
                 },
 
                 atmosphere: {
-                    color: "#7dd6ff",
-                    power: 2.4,
-                    intensity: 0.55,
-                    scale: 1.04,
+                    color: "#88c7ff",
+                    power: 2.6,
+                    intensity: 0.45,
+                    scale: 1.05,
+                },
+
+                hover: {
+                    threshold: 0.26,
+                    lift: 0.035,
+                    markerScale: 1.45,
                 },
             };
+
+            const BOROUGHS = [
+                {
+                    name: "Frogner",
+                    uv: [0.56, 0.52],
+                    accent: "#f4d7b0",
+                },
+                {
+                    name: "St. Hanshaugen",
+                    uv: [0.58, 0.48],
+                    accent: "#d7e4c5",
+                },
+                {
+                    name: "Sagene",
+                    uv: [0.6, 0.44],
+                    accent: "#c7d7e4",
+                },
+                {
+                    name: "Gamlebyen",
+                    uv: [0.6, 0.56],
+                    accent: "#e7c3b3",
+                },
+                {
+                    name: "Grünerløkka",
+                    uv: [0.62, 0.5],
+                    accent: "#d0c0e4",
+                },
+            ];
 
             function injectStyle(svgText, css) {
                 return svgText.replace(/<svg\b([^>]*)>/i, (m, attrs) => {
@@ -154,15 +215,15 @@
                 lineWidthHint,
             }) {
                 const bust = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
-                const r = await fetch(bust, { cache: "no-store" });
-                if (!r.ok)
+                const response = await fetch(bust, { cache: "no-store" });
+                if (!response.ok) {
                     throw new Error(
-                        `SVG fetch feilet: ${r.status} ${r.statusText} (${url})`,
+                        `SVG fetch feilet: ${response.status} ${response.statusText} (${url})`,
                     );
-                let svgText = await r.text();
+                }
+                let svgText = await response.text();
 
                 if (mode === "fillsOnly") {
-                    // Viktig: behold fill (farger), men fjern stroke helt
                     svgText = injectStyle(
                         svgText,
                         `
@@ -173,7 +234,6 @@
           `,
                     );
                 } else if (mode === "linesOnly") {
-                    // Kun konturer: ingen fill, hvit stroke
                     svgText = injectStyle(
                         svgText,
                         `
@@ -239,13 +299,19 @@
                 return tex;
             }
 
-            function buildAlbedoCanvas({
-                fillCanvas,
-                width,
-                height,
-                ocean,
-                land,
-            }) {
+            function addSoftNoise(ctx, width, height, intensity = 0.08) {
+                const imageData = ctx.getImageData(0, 0, width, height);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    const noise = (Math.random() - 0.5) * 255 * intensity;
+                    data[i] = Math.min(255, Math.max(0, data[i] + noise));
+                    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
+                    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
+                }
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            function buildAlbedoCanvas({ fillCanvas, width, height, ocean, land }) {
                 const base = document.createElement("canvas");
                 base.width = width;
                 base.height = height;
@@ -258,17 +324,17 @@
                 ctx.fillStyle = oceanGrad;
                 ctx.fillRect(0, 0, width, height);
 
-                const vignette = ctx.createRadialGradient(
+                const shimmer = ctx.createRadialGradient(
+                    width * 0.35,
+                    height * 0.4,
+                    width * 0.15,
                     width * 0.5,
-                    height * 0.55,
-                    width * 0.12,
-                    width * 0.5,
-                    height * 0.55,
-                    width * 0.72,
+                    height * 0.5,
+                    width * 0.7,
                 );
-                vignette.addColorStop(0, "rgba(255,255,255,0)");
-                vignette.addColorStop(1, "rgba(0,0,0,0.18)");
-                ctx.fillStyle = vignette;
+                shimmer.addColorStop(0, ocean.shimmer);
+                shimmer.addColorStop(1, "rgba(10, 15, 22, 0)");
+                ctx.fillStyle = shimmer;
                 ctx.fillRect(0, 0, width, height);
 
                 const landCanvas = document.createElement("canvas");
@@ -277,6 +343,7 @@
                 const landCtx = landCanvas.getContext("2d");
                 const landGrad = landCtx.createLinearGradient(0, 0, 0, height);
                 landGrad.addColorStop(0.1, land.base);
+                landGrad.addColorStop(0.5, land.warmth);
                 landGrad.addColorStop(0.9, land.shade);
                 landCtx.fillStyle = landGrad;
                 landCtx.fillRect(0, 0, width, height);
@@ -285,22 +352,34 @@
                 landCtx.globalCompositeOperation = "source-over";
 
                 ctx.drawImage(landCanvas, 0, 0);
+                addSoftNoise(ctx, width, height, 0.06);
+
                 return base;
             }
 
-            function estimateInkCoverage(ctx, w, h) {
-                // Rask indikator: hvor mange piksler har alpha > 0?
-                // Hvis fills finnes, blir dette typisk mye høyere enn bare linjer.
-                const img = ctx.getImageData(0, 0, w, h).data;
-                let nonZero = 0;
-                const step = 8; // sampling for speed
-                for (let i = 3; i < img.length; i += 4 * step) {
-                    if (img[i] > 0) nonZero++;
-                }
-                return nonZero; // relativt tall (kun diagnose)
+            function uvToVector3(u, v, radius = 1) {
+                const theta = (u - 0.5) * Math.PI * 2;
+                const phi = (0.5 - v) * Math.PI;
+                const x = radius * Math.cos(phi) * Math.sin(theta);
+                const y = radius * Math.sin(phi);
+                const z = radius * Math.cos(phi) * Math.cos(theta);
+                return new THREE.Vector3(x, y, z);
             }
 
-            // Scene / camera / renderer
+            function createGlowTexture() {
+                const canvas = document.createElement("canvas");
+                canvas.width = 128;
+                canvas.height = 128;
+                const ctx = canvas.getContext("2d");
+                const gradient = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+                gradient.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+                gradient.addColorStop(0.4, "rgba(140, 210, 255, 0.45)");
+                gradient.addColorStop(1, "rgba(140, 210, 255, 0)");
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+                return canvasToTexture(canvas);
+            }
+
             const scene = new THREE.Scene();
 
             const camera = new THREE.PerspectiveCamera(
@@ -309,7 +388,7 @@
                 0.01,
                 100,
             );
-            camera.position.set(0, 0, 3.2);
+            camera.position.set(0, 0, 3.1);
 
             const renderer = new THREE.WebGLRenderer({
                 antialias: true,
@@ -320,29 +399,27 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.outputColorSpace = THREE.SRGBColorSpace;
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.08;
-            renderer.setClearColor("#05060a", 1);
+            renderer.toneMappingExposure = 1.02;
+            renderer.setClearColor("#07080c", 1);
             document.body.appendChild(renderer.domElement);
 
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.06;
             controls.enablePan = false;
-            controls.minDistance = 2.2;
+            controls.minDistance = 2.1;
             controls.maxDistance = 6.0;
             controls.autoRotate = CONFIG.autoRotate;
             controls.autoRotateSpeed = CONFIG.autoRotateSpeed;
 
-            // Lys (base)
-            scene.add(new THREE.AmbientLight(0xffffff, 0.32));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.25));
             const key = new THREE.DirectionalLight(0xffffff, 1.15);
-            key.position.set(2.8, 1.6, 2.4);
+            key.position.set(2.6, 1.4, 2.2);
             scene.add(key);
             const fill = new THREE.DirectionalLight(0xffffff, 0.35);
-            fill.position.set(-2.4, -0.6, 1.4);
+            fill.position.set(-2.1, -0.4, 1.4);
             scene.add(fill);
 
-            // Globe group
             const globeGroup = new THREE.Group();
             scene.add(globeGroup);
 
@@ -352,18 +429,16 @@
                 CONFIG.segments,
             );
 
-            // Base: behold dine Wanderlust-verdier (lim inn hvis du har eksakt match)
             const baseMat = new THREE.MeshPhysicalMaterial({
                 color: new THREE.Color("#ffffff"),
-                roughness: 0.68,
-                metalness: 0.05,
-                clearcoat: 0.35,
-                clearcoatRoughness: 0.4,
+                roughness: 0.72,
+                metalness: 0.04,
+                clearcoat: 0.4,
+                clearcoatRoughness: 0.45,
             });
             const baseMesh = new THREE.Mesh(geom, baseMat);
             globeGroup.add(baseMesh);
 
-            // Fill overlay: unlit, ikke tonemapped
             const fillMat = new THREE.MeshBasicMaterial({
                 transparent: true,
                 depthWrite: false,
@@ -372,12 +447,8 @@
             fillMat.toneMapped = false;
             const fillMesh = new THREE.Mesh(geom, fillMat);
             fillMesh.scale.setScalar(CONFIG.fillScale);
-            fillMesh.rotation.y = THREE.MathUtils.degToRad(
-                CONFIG.overlayYawDeg,
-            );
             globeGroup.add(fillMesh);
 
-            // Line overlay: unlit, ikke tonemapped
             const lineMat = new THREE.MeshBasicMaterial({
                 transparent: true,
                 alphaTest: CONFIG.alphaTest,
@@ -388,9 +459,6 @@
             lineMat.toneMapped = false;
             const lineMesh = new THREE.Mesh(geom, lineMat);
             lineMesh.scale.setScalar(CONFIG.lineScale);
-            lineMesh.rotation.y = THREE.MathUtils.degToRad(
-                CONFIG.overlayYawDeg,
-            );
             globeGroup.add(lineMesh);
 
             const atmosphereMat = new THREE.ShaderMaterial({
@@ -432,7 +500,53 @@
             atmosphereMesh.scale.setScalar(CONFIG.atmosphere.scale);
             globeGroup.add(atmosphereMesh);
 
-            // Postprocessing
+            const markerGroup = new THREE.Group();
+            globeGroup.add(markerGroup);
+
+            const glowTexture = createGlowTexture();
+            const hoverState = {
+                active: null,
+                target: null,
+                smoothPos: new THREE.Vector3(),
+                screen: { x: 0, y: 0 },
+                labelVisible: false,
+            };
+
+            const boroughMarkers = BOROUGHS.map((borough) => {
+                const anchor = uvToVector3(borough.uv[0], borough.uv[1], CONFIG.radius);
+                const dotGeom = new THREE.SphereGeometry(0.012, 16, 16);
+                const dotMat = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color(borough.accent),
+                    transparent: true,
+                    opacity: 0.65,
+                });
+                dotMat.toneMapped = false;
+                const dot = new THREE.Mesh(dotGeom, dotMat);
+                dot.position.copy(anchor.clone().multiplyScalar(1.01));
+
+                const glowMat = new THREE.SpriteMaterial({
+                    map: glowTexture,
+                    color: new THREE.Color(borough.accent),
+                    transparent: true,
+                    opacity: 0.0,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending,
+                });
+                const glow = new THREE.Sprite(glowMat);
+                glow.scale.setScalar(0.14);
+                glow.position.copy(anchor.clone().multiplyScalar(1.04));
+
+                markerGroup.add(dot, glow);
+
+                return {
+                    ...borough,
+                    anchor,
+                    dot,
+                    glow,
+                    scale: 1,
+                };
+            });
+
             const composer = new EffectComposer(renderer);
             composer.addPass(new RenderPass(scene, camera));
             let bloomPass = null;
@@ -446,9 +560,98 @@
                 composer.addPass(bloomPass);
             }
 
+            const raycaster = new THREE.Raycaster();
+            const pointer = new THREE.Vector2(0, 0);
+            let hasPointer = false;
+
+            function setLabel(borough) {
+                if (!borough) {
+                    label.classList.remove("visible");
+                    hoverState.labelVisible = false;
+                    return;
+                }
+                labelName.textContent = borough.name;
+                label.classList.add("visible");
+                hoverState.labelVisible = true;
+            }
+
+            function updateHover(point) {
+                if (!point) {
+                    hoverState.target = null;
+                    setLabel(null);
+                    return;
+                }
+                const normalized = point.clone().normalize();
+                let closest = null;
+                let closestAngle = Infinity;
+
+                for (const borough of boroughMarkers) {
+                    const angle = normalized.angleTo(borough.anchor.clone().normalize());
+                    if (angle < closestAngle) {
+                        closestAngle = angle;
+                        closest = borough;
+                    }
+                }
+
+                if (closest && closestAngle < CONFIG.hover.threshold) {
+                    hoverState.target = closest;
+                    setLabel(closest);
+                } else {
+                    hoverState.target = null;
+                    setLabel(null);
+                }
+            }
+
+            function updatePointer(event) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                hasPointer = true;
+            }
+
+            function clearPointer() {
+                hasPointer = false;
+                updateHover(null);
+            }
+
+            renderer.domElement.addEventListener("pointermove", updatePointer);
+            renderer.domElement.addEventListener("pointerleave", clearPointer);
+
             function animate() {
                 requestAnimationFrame(animate);
                 controls.update();
+
+                if (hasPointer) {
+                    raycaster.setFromCamera(pointer, camera);
+                    const hit = raycaster.intersectObject(baseMesh);
+                    if (hit.length) {
+                        updateHover(hit[0].point);
+                    } else {
+                        updateHover(null);
+                    }
+                }
+
+                const target = hoverState.target;
+                for (const borough of boroughMarkers) {
+                    const isActive = target && target.name === borough.name;
+                    const targetScale = isActive ? CONFIG.hover.markerScale : 1;
+                    borough.scale += (targetScale - borough.scale) * 0.12;
+                    borough.dot.scale.setScalar(borough.scale);
+                    borough.glow.material.opacity +=
+                        ((isActive ? 0.6 : 0.0) - borough.glow.material.opacity) *
+                        0.12;
+                    borough.glow.scale.setScalar(0.14 * borough.scale);
+                }
+
+                if (hoverState.labelVisible && target) {
+                    hoverState.smoothPos.lerp(target.anchor, 0.12);
+                    const screenPos = hoverState.smoothPos.clone().project(camera);
+                    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                    label.style.left = `${x}px`;
+                    label.style.top = `${y}px`;
+                }
+
                 composer.render();
             }
             animate();
@@ -458,17 +661,13 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 composer.setSize(window.innerWidth, window.innerHeight);
-                if (bloomPass)
+                if (bloomPass) {
                     bloomPass.setSize(window.innerWidth, window.innerHeight);
+                }
             });
 
-            // Load overlays
             (async () => {
                 try {
-                    log(
-                        `Laster SVG fra ${CONFIG.svgUrl} …\n(v5: albedo + konturer fra SVG)`,
-                    );
-
                     const fillCanvasRes = await svgToCanvas({
                         url: CONFIG.svgUrl,
                         width: CONFIG.texW,
@@ -495,18 +694,6 @@
                         land: CONFIG.land,
                     });
 
-                    // Diagnose: finnes det faktisk fylte flater?
-                    const fillInk = estimateInkCoverage(
-                        fillCanvasRes.ctx,
-                        CONFIG.texW,
-                        CONFIG.texH,
-                    );
-                    const lineInk = estimateInkCoverage(
-                        lineCanvasRes.ctx,
-                        CONFIG.texW,
-                        CONFIG.texH,
-                    );
-
                     baseMat.map = canvasToTexture(albedoCanvas);
                     baseMat.needsUpdate = true;
 
@@ -515,19 +702,8 @@
 
                     lineMat.map = canvasToTexture(lineCanvasRes.canvas);
                     lineMat.needsUpdate = true;
-
-                    log(
-                        `OK: overlay lastet.\n` +
-                            `Diagnose:\n` +
-                            `- fill pixels (sampled): ${fillInk}\n` +
-                        `- line pixels (sampled): ${lineInk}\n\n` +
-                            `Hvis fill pixels ~ 0: SVG-en har ingen fylte bydeler. Da må du levere en fill-SVG.`,
-                    );
-                } catch (e) {
-                    log(
-                        `Overlay feilet:\n${e.message}\n\nSjekk:\n- oslo.svg ved siden av globe.html\n- kjører via lokal server\n- Network: oslo.svg -> 200`,
-                    );
-                    console.error(e);
+                } catch (error) {
+                    console.error(error);
                 }
             })();
         </script>
